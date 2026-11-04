@@ -1,0 +1,811 @@
+---
+title: "Elaborato Machine Learning"
+author: "Comin Eros"
+date: "2024-07-16"
+output: html_document
+---
+
+
+
+
+#  Implementazione e confronto di modelli per la classificazione di pazienti a rischio di cardiopatie 
+
+### Obiettivo secondario: sviluppo di un App utile alla classificazione di pazienti in "Non a rischio" e "A rischio"
+
+
+--------------------------------------------------------------------------------
+
+
+# Esplorazione del dataset
+
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+file_data <- "data/DATA.csv"    # percorso del dataset, relativo alla cartella del progetto
+data      <- read.csv(file_data)
+
+dim(data)
+```
+
+
+
+Come atteso dalla descrizione del dataset, si hanno a disposizione i dati di 1025 pazienti. Tutte le variabili sono numeriche.
+
+
+
+## Dati mancanti
+
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+print(paste("Numero di soggetti con dati completi: ",dim(data)[1], "(", round(dim(data)[1]/dim(data)[1]*100,2),"%",")"))
+```
+
+
+Da questa prima esplorazione nel dataset non sembrano esservi presenti dati mancanti.
+
+
+--------------------------------------------------------------------------------
+
+
+# Esplorazione delle variabili 
+
+
+```{r, warning=FALSE, include=TRUE, echo=FALSE}
+sapply(data, class)
+```
+
+```{r, warning=FALSE, include=TRUE, echo=FALSE}
+#install.packages("DataExplorer")
+library(DataExplorer)
+library(ggplot2)
+
+summary(data)
+
+plot_histogram(data, theme_config = list(
+  "plot.background" = element_rect(fill = "white"),
+  "aspect.ratio" = 0.5
+))
+```
+
+
+Tutte le variabili sono numeriche, continue o discrete, ognuna di queste deve essere ricodificata in chiave categoriale.
+
+
+## Ricodifica delle variabili
+
+
+### Variabile "age"
+
+
+```{r}
+data$age_c <- 0
+
+
+data$age_c <- cut(data$age, 
+                  breaks = c(-Inf, 45, 55, 65, Inf), 
+                  labels = c(1, 2, 3, 4), 
+                  right  = FALSE)
+
+
+colors <- rainbow(length(unique(data$age_c)))
+plot(data$age_c, col = colors, main = "Distribuzione della variabile 'AGE'")
+```
+
+
+Abbiamo ricodificato la variabile "age" in modo tale da raggruppare i pazienti in 4 classi quali: [29, 44]; [45, 54]; [55, 64]; [65, 77].
+
+
+### Variabile "sex"
+
+
+```{r}
+recode_sex <- c(Uomo = 1, Donna = 0)
+data$sex   <- factor(data$sex, levels = recode_sex, labels = names(recode_sex))
+data$sex   <- relevel(data$sex, ref = "Uomo")
+
+colors <- rainbow(length(unique(data$sex)))
+plot(data$sex, col = colors, main = "Distribuzione della variabile 'SEX'")
+```
+
+
+### Variabile "cp": chest pain
+
+
+```{r, echo=FALSE}
+data$cp <- as.factor(data$cp)
+
+recode  <- c('Asintomatico' = 0, 'Dolore atipico' = 1, 'Dolore non anginoso' = 2, 'Dolore tipico' = 3)
+data$cp <- factor(data$cp, levels = recode, labels = names(recode))
+data$cp <- relevel(data$cp, ref = 'Asintomatico')
+
+
+
+colors <- rainbow(length(unique(data$cp)))
+plot(data$cp, col = colors, main = "Distribuzione della variabile 'Chest Pain'")
+```
+
+0. Asintomatico                    (Nessun dolore toracico)
+
+1. Angina atipica                  (Dolore toracico atipico)
+
+2. Dolore toracico non anginoso    (Dolore non associato a malattia coronarica)
+
+3. Tipico angina pectoris          (Dolore toracico tipico)
+
+
+### Variabile "trestbps": resting blood pressure (pressione arteriosa a riposo)
+
+
+```{r, echo=FALSE}
+data$blood_p <- 0
+
+
+data$blood_p <- cut(data$trestbps, 
+                  breaks = c(-Inf, 120, 130, Inf), 
+                  labels = c("Normale", "Elevata", "Ipertensione"), 
+                  right  = FALSE)
+
+colors <- rainbow(length(unique(data$blood_p)))
+plot(data$blood_p, col = colors, main = "Distribuzione della variabile 'Resting Blood Pressure'")
+```
+
+
+Abbiamo ricodificato questa variabile in modo tale da raggruppare i pazienti in 3 classi di pressione arteriosa a riposo quali: [<120): Normale; [>120 | <130): Elevata; [>130]: Ipertensione.
+
+
+### Variabile "chol": serum cholesterol level in mg/dl 
+
+
+```{r, echo=FALSE}
+data$chol_c <- 0
+
+
+data$chol_c <- cut(data$chol, 
+                  breaks = c(-Inf, 200, 240, Inf),   # soglia 200 e non 240 perché vogliamo fare una prima scrematura dei pazienti a rischio
+                  labels = c("Normale", "Borderline", "Elevato"), 
+                  right  = FALSE)
+
+colors <- rainbow(length(unique(data$chol_c)))
+plot(data$chol_c, col = colors, main = "Distribuzione della variabile 'Cholesterol Level'")
+```
+
+
+Questa variabile è stata ricodificata per raggruppare i pazienti in 3 classi per livello di colosterolo nel sangue: [<200): Normale; [>200 | <240): Borderline; [>240]: Elevato
+
+
+### Variabile "fbs": whether the patient's fasting blood sugar is greater than 120 mg/dl
+
+```{r, echo=FALSE}
+data$fbs <- as.factor(data$fbs)
+
+recode_fbs <- c('>120 mg/dl' = 1, '<120 mg/dl' = 0)
+data$fbs   <- factor(data$fbs, levels = recode_fbs, labels = names(recode_fbs))
+data$fbs   <- relevel(data$fbs, ref = "<120 mg/dl")
+
+colors <- rainbow(length(unique(data$fbs)))
+plot(data$fbs, col = colors, main = "Distribuzione della variabile 'Fasting Blood Sugar'")
+```
+
+
+### Variabile "restecg": categorical attribute representing the results of the resting electrocardiogram
+
+
+```{r, echo=FALSE}
+data$restecg <- as.factor(data$restecg)
+
+recode_rest  <- c(Normale = 0, 'Anormale non specifico' = 1, 'Anormale Significativo' = 2)
+data$restecg <- factor(data$restecg, levels = recode_rest, labels = names(recode_rest))
+data$restecg <- relevel(data$restecg, ref = "Normale")
+
+colors <- rainbow(length(unique(data$restecg)))
+plot(data$restecg, col = colors, main = "Distribuzione della variabile 'Resting Electrocardiogram'")
+```
+
+
+### Variabile "thalach": maximum heart rate achieved by the patient
+
+
+```{r, echo=FALSE}
+data$thalach_c <- "Normale"
+soglia         <- 220 - data$age
+
+for (i in 1: dim(data)[1]) {
+  if (data$thalach[i] >= soglia[i]) {data$thalach_c[i] <- "Oltre la soglia"} # soglia 220 - età
+}
+
+data$thalach_c <- as.factor(data$thalach_c)
+
+colors <- rainbow(length(unique(data$thalach_c)))
+plot(data$thalach_c, col = colors, main = "Distribuzione della variabile 'Maximum Heart Rate'")
+```
+
+
+Per classificare i pazienti è stata utilizzata la formula della frequenza cardiaca massima teorica, una delle metodologie più comuni che prevede di utilizzare la formula 220 meno l'età del paziente per fornire una stima approssimativa della frequenza cadiaca massima utilizzata come rierimento.
+
+
+### Variabile "exang": experiencing angina (chest pain) by exerciseing
+
+
+```{r, echo=FALSE}
+data$exang <- as.factor(data$exang)
+
+recode_exang  <- c('No pain' = 0, 'Chest pain' = 1)
+data$exang    <- factor(data$exang, levels = recode_exang, labels = names(recode_exang))
+data$exang    <- relevel(data$exang, ref = 'No pain')
+
+colors <- rainbow(length(unique(data$exang)))
+plot(data$exang, col = colors, main = "Distribuzione della variabile 'Maximum Heart Rate'")
+```
+
+
+
+### Variabile "oldpeak": ST segment depression induced by exercise relative to rest (interpretazione ECG)
+
+
+```{r, echo=FALSE}
+hist(data$oldpeak, main = "Distribuzione della variabile 'ST segment depression'", xlab = '')
+
+summary(data$oldpeak) # valore medio 1
+
+
+data$oldpeak_c <- 0
+data$oldpeak_c <- cut(data$oldpeak, 
+                  breaks = c(-Inf, 2,Inf),   
+                  labels = c("Bassa", "Elevata"), 
+                  right  = FALSE)
+
+colors <- rainbow(length(unique(data$oldpeak_c)))
+plot(data$oldpeak_c, col = colors, main = "Distribuzione della variabile 'ST segment depression'")
+```
+
+
+In generale si può valutare con valori da 1 a 6 la depressione del segmento ST per quantificare la variazione del segmento durante l'esercizio rispetto al riposo. Questo tipo di misurazione è utilizzato nei test di sforzo per valutare la risposta cardiaca del paziente. Questa variabile è stata ricodificata per classificare i pazienti in 2 classi: [<2) depressione Bassa o assente; [>2] depressione Elevata. Si è scelto di costruire due sole classi data la bassa numerosità di soggetti con valori per questa variabile superiori o uguali a 2. 
+
+
+### Variabile "slope": ST segment peak slope under stress
+
+
+```{r, echo=FALSE}
+data$slope <- as.factor(data$slope)
+
+recode  <- c('Downsloping' = 0, 'Flat' = 1, 'Upsloping' = 2)
+data$slope <- factor(data$slope, levels = recode, labels = names(recode))
+data$slope <- relevel(data$slope, ref = 'Upsloping')
+
+colors <- rainbow(length(unique(data$slope)))
+plot(data$slope, col = colors, main = "Distribuzione della variabile 'ST segment depression'")
+```
+
+
+La direzione della curva del segmento ST durante il picco di esercizio fisico registrato su un elettrocardiogramma viene interpretato in funzione dell'inclicanzione della curva: 
+ - Pendenza ascendente, indice di un aumento del segmento ST durante lo sforzo fisico, può essere considerato un segno di normale risposta cardiaca 
+ 
+ - Pendenza discendente, indica una diminuzione del segmento ST durante lo sforzo fisico, può essere associato a ischemia miocardica o ad altri problemi cardiaci
+ 
+ - Pendenza orizzontale o piatta, una mancanza di cambiamento significativo nel segmento ST durante lo sforzo fisico può indicare una normale risposta cardiaca all'esercizio o una scarsa sensibilità dell'ECG nel rilevare cambiamenti
+
+
+
+### Variabile "ca": number of major blood vessels colored by fluoroscopy
+
+
+```{r, echo=FALSE}
+for (i in 1: dim(data)[1]){
+if(data$ca[i] == 4) {data$ca[i] <- NA}}
+
+data$ca <- as.factor(data$ca)
+
+data$vasi_ostruiti <- "mancante"
+
+recode  <- c('Nessuno' = 0, 'Uno' = 1, 'Due' = 2, 'Tre' = 3)
+data$vasi_ostruiti <- factor(data$ca, levels = recode, labels = names(recode))
+data$vasi_ostruiti <- relevel(data$vasi_ostruiti, ref = 'Nessuno')
+
+colors <- rainbow(length(unique(data$vasi_ostruiti)))
+plot(data$vasi_ostruiti, col = colors, main = "Distribuzione della variabile 'Coronary arteries colored'")
+summary(data$vasi_ostruiti)
+```
+
+
+Questa variabile da informazioni sul numero delle arterie coronarie ostruite.
+
+
+
+### Variabile "thal": thallium stress test (scintigrafia miocardica con tallio)
+
+
+```{r, echo=FALSE}
+recode  <- c('Mancante' = 0, 'Fixed defect' = 1, 'Normale' = 2, 'Reversible defect' = 3)
+data$thal <- factor(data$thal, levels = recode, labels = names(recode))
+data$thal <- relevel(data$thal, ref = 'Normale')
+
+colors <- rainbow(length(unique(data$thal)))
+plot(data$thal, col = colors, main = "Distribuzione della variabile 'Thallium stress test'")
+
+
+summary(data$thal)
+n <- sum(data$thal=="Mancante")
+N <- dim(data)[1]
+print(paste("Mancanti: ", round(n/N*100, 2), "%"))
+```
+
+
+Questa variabile riporta il risultato della scintigrafia miocardica con tallio, un esame che valuta l'afflusso di sangue al muscolo cardiaco: normale, difetto fisso o difetto reversibile. Il valore 3, che rappresenta circa il 40% dei pazienti, non corrisponde a dati mancanti ma al difetto reversibile, mentre i dati mancanti sono codificati con il valore 0 e sono pochissimi. Siccome non sono stato in grado di raccogliere sufficienti informazioni sul significato e sull'utilizzo di questa variabile è stato comunque deciso di non utilizzarla per le analisi.
+
+
+### Variabile "target": Heart disease
+
+
+```{r, echo=FALSE}
+# nel file 0 = malato e 1 = sano: si inverte la codifica, in modo che 1 identifichi i pazienti malati
+data$target <- 1 - data$target
+
+data$target <- as.factor(data$target)
+data$target <- relevel(data$target, ref = "0")
+
+#plot(data$target)
+
+recode  <- c('Sano' = 0, 'malato' = 1)
+data$target2 <- factor(data$target, levels = recode, labels = names(recode))
+data$target2 <- relevel(data$target2, ref = 'Sano')
+
+colors <- rainbow(length(unique(data$target2)))
+plot(data$target2, col = colors, main = "Distribuzione della variabile 'Heart disease'")
+summary(data$target2)
+```
+
+
+Nel dataset la variabile "target" risulta codificata al contrario rispetto alla descrizione: i pazienti con target pari a 0 sono più anziani, raggiungono frequenze cardiache massime più basse e hanno più vasi ostruiti, caratteristiche dei pazienti malati. La codifica viene quindi invertita, in modo che il valore 1 identifichi i pazienti con cardiopatia.
+
+
+```{r, warning=FALSE, include=FALSE, echo=FALSE}
+### Dataset di lavoro
+
+summary(data)
+# si eliminano le variabili originali che sono state ricodificate
+data2 <- data[, !(names(data) %in% c("age", "trestbps", "chol", "thalach", "oldpeak", "ca", "thal"))]
+
+summary(data2)
+```
+
+
+--------------------------------------------------------------------------------
+
+
+## Imputazione dati mancanti
+
+
+```{r, warning=FALSE, include=TRUE, echo=FALSE, message=FALSE}
+
+library(Hmisc)
+
+# 0
+cont  <- colSums(is.na(data2))                                                                  # conteggio i dati mancanti per colonna
+cont
+
+# KNN imputation   
+#install.packages("VIM")
+library(VIM)
+
+
+data3 <- kNN(data2, k = 3)
+data3 <- data3[, 1:ncol(data2)]
+  
+cont2  <- colSums(is.na(data3))
+cont2                                                                                              # conteggio i dati mancanti per colonna
+```
+
+
+Per l'imputazione dei dati mancanti ho utilizzato il metodo KNN (K-Nearest Neighbors). Ho scelto di prendere il valore K=3 per cercare di ridurre l'influenza di osservazioni meno rilevanti riducendo quindi la variabilità tra soggetti. 
+
+
+--------------------------------------------------------------------------------
+
+
+## variabili sbilanciate
+
+
+Le variabili che potrebbero risultare di interesse rispetto al bilanciamento della variabile target cono: sex, pressione sanguinea a riposo e colesterolo totale. 
+
+
+```{r, warning=FALSE, include = FALSE, echo=FALSE}
+# Visualizza la distribuzione della variabile target rispetto a tutte le altre variabili
+for (col in colnames(data3)) {
+  if (is.factor(data3[[col]]) || is.character(data3[[col]])) {
+    print(table(data3[[col]], data3$target))
+  }
+}
+
+```
+
+```{r, echo=FALSE}
+print("Frequenze relative: sex * target")
+table_data <- table(data3$sex, data3$target2) / dim(data3)[1]
+addmargins(round(table_data,3))
+
+print("Frequenze relative: sex=Donna * target")
+table_data <- table(as.character(data3[data3$sex == 'Donna', "sex"]), data3[data3$sex == 'Donna', "target2"])/ dim(data3[data3$sex == 'Donna',])[1]
+(round(table_data,3))
+
+print("Frequenze relative: blood_p * target")
+table_data <- table(data3$blood_p, data3$target2) / dim(data3)[1]
+addmargins(round(table_data,3))
+
+print("Frequenze relative: chol_c * target")
+table_data <- table(data3$chol_c, data3$target2) / dim(data3)[1]
+addmargins(round(table_data,3))
+```
+
+
+Le frequenze della variabile sex rispettano quanto atteso secondo la letteratura che tratta il rischio di cardiopatie nei pazienti: la proporzione di malati è del `r round(mean(data3$target2[data3$sex == "Donna"] == "malato")*100)`% tra le pazienti di sesso femminile e del `r round(mean(data3$target2[data3$sex == "Uomo"] == "malato")*100)`% tra i pazienti di sesso maschile, tra i quali questo genere di evento è più comune. Le donne sono però solo il `r round(mean(data3$sex == "Donna")*100)`% del campione. Risulta invece meno attesa la distribuzione delle variabili che rappresentano la pressione arteriosa a riposo e il colesterolo totale: in entrambi i casi la categoria che racchiude più soggetti è anche la categoria che rappresenta la condizione di comorbidità peggiore per il paziente (blood_p=Ipertensione `r round(mean(data3$blood_p == "Ipertensione")*100)`%, chol_c=Elevato `r round(mean(data3$chol_c == "Elevato")*100)`%).
+Per questi motivi si potrebbe concludere che la popolazione in analisi rappresenti una sottocategoria di soggetti maggiormente a rischio, come ad esempio un database ospedaliero.
+
+## Random oversampling
+
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+library(ROSE)
+library(dplyr)
+
+# Definiamo una funzione per eseguire l'oversampling all'interno di ciascun gruppo
+oversample <- function(df) {
+  max_size <- max(table(df$sex))
+  list_df  <- split(df, df$sex)
+  list_df  <- lapply(list_df, function(x) {
+    size_diff <- max_size - nrow(x)
+    if (size_diff > 0) {
+      indices <- sample(1:nrow(x), size = size_diff, replace = TRUE)
+      x <- rbind(x, x[indices, ])
+    }
+    x
+  })
+  balanced_df <- do.call(rbind, list_df)
+  return(balanced_df)
+}
+
+# Applichiamo la funzione di oversampling a ciascun gruppo
+data_balanced <- data3 %>%
+  group_by(target) %>%
+  do(oversample(.))
+```
+
+
+```{r, warning=FALSE, echo=FALSE}
+print("Bilanciamento della variabile sex")
+print("Prima:")
+table(data3$sex, data3$target2)
+print("Dopo:")
+table(data_balanced$sex,data_balanced$target2)
+```
+
+
+
+```{r, warning=FALSE, echo=FALSE}
+print("Bilanciamento della variabile Chol_c")
+print("Prima:")
+table(data3$chol_c, data3$target2)
+print("Dopo:")
+table(data_balanced$chol_c, data_balanced$target2)
+```
+
+
+
+Dato l'obiettivo di questo progetto è stato scelto di costruire un dataset bilanciato rispetto alla variabile sex. Questo è stato svolto poiché non sarebbe possibile ottenere un risultato utile a fare screening di primo livello se una variabile importante come il sesso del paziente risultasse essere sbilanciata. E' quindi stato svolto un processo di oversampling per le categorie della varibile target sviluppato rispetto alle categorie della variabile sex, in questo modo ci si potrebbe attendere che il processo di bilanciamento permetta di ottenere dei risultati più simili a quanto sarebbe atteso secondo la letteratura. 
+
+Questo procedimento però non tiene conto della variabilità di altre variabili, questo implica che la distribuzione delle altre variabili presenti nel dataset potrebbe risultare diversa da quella iniziale. Non essendo riuscito a controllare questa forma di distorsione e ipotizzando che questa possa causare bias nei risultati si è scelto di utilizzare il dataset originale per le analisi, questa scelta potrebbe portare poi a modificare il quesito di interesse di questo studio.
+
+
+--------------------------------------------------------------------------------
+
+
+# Model selection 
+
+
+```{r, echo=FALSE}
+# build the matrix of regressors:
+X <- model.matrix(target~.,data3[, names(data3) != "target2"]) # remove target2
+#dim(X)
+#head(X)             # 11 features in Credit + 1 col for intercept
+
+X <- X[,-1]         # remove the intercept, not required in input
+Y <- as.numeric(as.character(data3$target))         # the dependent variable, 0/1
+p <- ncol(X)
+
+# hybrid version:
+subsetfit <- leaps::regsubsets(X,Y,nvmax=p,method="seqrep")
+
+plot(subsetfit,scale="bic")
+plot(subsetfit,scale="Cp")
+plot(subsetfit,scale="adjr2")
+```
+
+
+
+Questi criteri di selezione aiutano a scegliere le variabili da includere nel modello, l'obiettivo è quindi di bilanciare tra bontà di adattamento e complessità del modello. I grafici mostrano i risultati per i criteri: Bayesian Information Criterion (BIC), Mallows' Cp ed Adjusted R^2. Variabili come: fasting blood sugar, resting electrocardiogram, resting blood pressure e maximum heart rate risultano non rilevanti per ognuno dei criteri valutati, per questa ragione tali variabili non verranno utilizzate nelle successive analisi.
+
+
+```{r, echo=FALSE}
+# viene rimossa anche target2
+data_model <- data3[, !(names(data3) %in% c("fbs", "restecg", "blood_p", "thalach_c", "target2"))]
+dim(data_model)
+```
+
+
+--------------------------------------------------------------------------------
+
+
+## Bootstrap model comparison
+
+```{r, warning=FALSE, message=FALSE}
+#install.packages("caret")
+#install.packages("neuralnet")
+library(caret)
+library(dplyr)
+library(nnet)
+library(neuralnet)
+
+# boot viene usata per ripetere il confronto: gli indici di ricampionamento non sono utilizzati,
+# ad ogni ripetizione si crea invece una nuova suddivisione casuale 80/20 tra train e test
+boot.fn <- function(data,indices){
+   cpart    =createDataPartition(y=data_model$target,times=1,p=.8)
+   train.df =data_model[cpart$Resample1,]           # 80% delle osservazioni nel train, 20% nel test
+   test.df  =data_model[-cpart$Resample1,]
+
+
+   train.y  <- train.df$target
+   train.df <- train.df[, names(train.df) != "target"]
+   test.y   <- test.df$target
+   test.df  <- test.df[, names(test.df) != "target"]
+   
+   
+   # var to define raws in train 
+   y  <- as.character(data_model$target)
+   y[cpart$Resample1]  <- "TRUE"
+   y[-cpart$Resample1] <- "FALSE"
+   
+   
+   
+   # Modello KNN
+   # Codifica delle variabili fattoriali in matrice di variabili numeriche 
+   trainKNN.df <- model.matrix(~. - 1, data = train.df)
+   testKNN.df  <- model.matrix(~. - 1, data = test.df)
+
+   # K by cross-validation
+   k.vec <- c(3,4,5,6,7,8,9,10,15,20,25,30)                                       
+   knns  <- sapply(k.vec,function(kk) 
+   mean(class::knn.cv(trainKNN.df,train.y,k=kk)!=train.y))    # prop of errors for KNN class, at different levels of K 
+   k.cv <- which.min(knns)                                    # K that min error
+
+   # re-run knn, with K selected by CV:
+   knncv     <- class::knn(trainKNN.df,testKNN.df,train.y,k=k.vec[k.cv])  
+
+   
+   
+   #Modello LDA
+   lda.fit  <- MASS::lda(target~.,data=data_model,subset=(y == "TRUE"))
+   lda.pred <- predict(lda.fit,data_model[y == "FALSE",])$class
+  
+   
+   
+   # Modello QDA
+   qda.fit  <- MASS::qda(target~.,data=data_model,subset=(y == "TRUE"))
+   qda.pred <- predict(qda.fit,data_model[y == "FALSE",])$class
+   
+   
+   
+   # Modello logistic regression
+   log.fit  <- glm(target~.,data=data_model,family=binomial, subset=(y == "TRUE"))
+   log.prob <- predict(log.fit,data_model[y == "FALSE",],type="response")
+   log.pred <- rep("0",length(test.y)) 
+   log.pred[log.prob>0.5] <- "1"
+   
+
+
+  
+   # Modello Neural network
+   # variabili categoriche in variabili dummy
+   dummies <- dummyVars(target ~ ., data=data_model)
+   data_transformed <- data.frame(predict(dummies, data_model))
+   
+   # NN
+   rete    <- neuralnet(train.y~., data=cbind(data_transformed[y == "TRUE",],train.y))
+   nn.pred <- compute(rete, cbind(data_transformed[y == "FALSE",],test.y))
+   nn.pred$class <- ifelse(nn.pred$net.result > 0.5, 1, 0)
+   ret.pred <- nn.pred$class[,2]
+
+
+   
+   # error rate
+   knncv.err <- mean(knncv!=test.y)                      
+   lda.err   <- mean(lda.pred!=test.y)
+   qda.err   <- mean(qda.pred!=test.y)
+   log.err   <- mean(log.pred!=test.y)
+   rete.err  <- mean(ret.pred!=test.y)
+
+   
+   
+   # Sensitivity                                                                              
+   knncv.sen <- sum((knncv    == 1)&(test.y == 1)) / sum(1==test.y)
+   lda.sen   <- sum((lda.pred == 1)&(test.y == 1)) / sum(1==test.y)
+   qda.sen   <- sum((qda.pred == 1)&(test.y == 1)) / sum(1==test.y)
+   log.sen   <- sum((log.pred == 1)&(test.y == 1)) / sum(1==test.y)
+   rete.sen  <- sum((ret.pred == 1)&(test.y == 1)) / sum(1==test.y)
+   
+   
+    
+   # Specificity                                                                             
+   knncv.spe <- sum((knncv    == 0)&(test.y == 0)) / sum(0==test.y)
+   lda.spe   <- sum((lda.pred == 0)&(test.y == 0)) / sum(0==test.y)
+   qda.spe   <- sum((qda.pred == 0)&(test.y == 0)) / sum(0==test.y)
+   log.spe   <- sum((log.pred == 0)&(test.y == 0)) / sum(0==test.y)
+   rete.spe  <- sum((ret.pred == 0)&(test.y == 0)) / sum(0==test.y)
+   
+   
+  
+   kcv <- c(k.cv)
+   err <- c(knncv.err, lda.err, qda.err, log.err, rete.err)
+   sen <- c(knncv.sen, lda.sen, qda.sen, log.sen, rete.sen)
+   spe <- c(knncv.spe, lda.spe, qda.spe, log.spe, rete.spe)
+  
+  
+   
+   return(c(err, sen, spe, kcv))
+}
+
+
+set.seed(65493) 
+out.boot <- boot::boot(data_model,boot.fn,R=100) 
+dim(out.boot$t)                                                             
+
+
+
+err <- data.frame(out.boot$t[1:100,1:5  ])
+sen <- data.frame(out.boot$t[1:100,6:10 ]) 
+spe <- data.frame(out.boot$t[1:100,11:15])
+kcv <-            out.boot$t[1:100,16   ]
+```
+
+
+Il processo consiste nell’utilizzo della funzione boot per stimare i valori di error rate, specificity e sensitivity di diversi modelli, consentendo di ottenere una stima robusta delle prestazioni medie di ciascun modello. In questo algoritmo il processo viene iterato 100 volte, e ad ogni ripetizione, viene creato un set di dati di train e di test diversi.
+
+Vengono posti a confronto cinque modelli: K-Nearest Neighbors (KNN), Linear Discriminant Analysis (LDA), Quadratic Discriminant Analysis (QDA), Logistic Regression (Log) e Neural Network (NN). Ad ogni ripetizione vengono immagazzinati i valori dei criteri di interesse, questi vengono poi usati per scegliere il modello migliore per rispondere al quesito di interesse. 
+
+A monte di questa analisi vi era l'interesse di trovare il modello migliore per fare screening di primo livello tra i soggetti a rischio di cardiopatie, per trovare il modello che meglio risponde a questo quesito si deve scegliere il modello con il valore di sensitivity più alto. Questo criterio infatti permetterebbe di perdere il minor numero possibile di soggetti malati, magari a costo di indirizzare soggetti non a rischio verso un processo di screening di secondo livello. Le analisi svolte sino a questo punto però hanno portato a credere che la popolazione in analisi sia già stata selezionata attraverso qualche criterio. Di conseguenza, si è deciso di precisare il quesito di interesse, si è ora interessati a trovare il modello migliore per identificare, tra pazienti già indirizzati ad approfondimenti cardiologici, quelli con maggiore bisogno di attenzioni e cure. Anche per rispondere a questo quesito cercheremo il modello con il valore di sensitivity maggiore, questo ci permetterà di allocare correttamente nella categoria a rischio il maggior numero di soggetti malati, potenzialmente a costo di includere in questa categoria dei soggetti sani. La specificity diventerebbe invece la metrica principale se il passo successivo fosse un trattamento invasivo/pericoloso per il paziente o particolarmente costoso per l'ente che eroga il servizio, perché in quel caso andrebbe limitato il numero di soggetti sani classificati come malati.
+
+
+```{r, echo=FALSE, warning=FALSE}
+print("distribuzione dei valori cv K, scelti tra 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30")
+#print(kcv)
+table(kcv)
+
+
+print(paste("Valori medi di error rate:"))
+print(paste("KNN CV:",round(mean(err$X1),3)))
+print(paste("LDA:"   ,round(mean(err$X2),3)))
+print(paste("QDA:"   ,round(mean(err$X3),3)))
+print(paste("Log:"   ,round(mean(err$X4),3)))
+print(paste("NN:"    ,round(mean(err$X5),3)))
+                                                                                # Convertire la lista di errori in un data frame per il boxplot
+err2           <- do.call(cbind, err)
+colnames(err2) <- c("KNN CV", "LDA", "QDA", "Log", "NN")
+boxplot(err2, names = colnames(err2), main = "Error rates")
+```
+
+
+Il modello che mostra un error rate minore è la Neural Network, `r round(mean(err$X5)*100, 1)`%. Il boxplot mostrato in figura mostra anche che la variabilità dei valori registrati per questo modello è simile a quella degli altri modelli in analisi, mentre i valori sono complessivamente più bassi, a confermare l'ipotesi che rispetto a questa metrica la NN è il modello migliore. Questo risultato può essere attribuito alla capacità della NN di catturare relazioni complesse e non lineari nei dati, grazie alla loro architettura a multilivello. Invece, il modello che mostra il risultato peggiore è il QDA, questo potrebbe suggerire che le relazioni complesse tra i dati non vengono correttamente stimate da questo modello che mostra un valore di error rate del `r round(mean(err$X3)*100, 1)`%.
+
+
+```{r, echo=FALSE, warning=FALSE}
+print(paste("Valori medi di sensitivity:"))
+print(paste("KNN CV:",round(mean(sen$X1),3)))
+print(paste("LDA:"   ,round(mean(sen$X2),3)))
+print(paste("QDA:"   ,round(mean(sen$X3),3)))
+print(paste("Log:"   ,round(mean(sen$X4),3)))
+print(paste("NN:"    ,round(mean(sen$X5),3)))
+sen2           <- do.call(cbind, sen)
+colnames(sen2) <- c("KNN CV", "LDA", "QDA", "Log", "NN")
+boxplot(sen2, names = colnames(sen2), main = "Sensitivity rates")
+```
+
+
+Per la sensitivity i modelli KNN e NN mostrano i valori più alti e molto vicini tra loro, rispettivamente `r round(mean(sen$X1)*100, 1)`% e `r round(mean(sen$X5)*100, 1)`%, seguiti dalla regressione logistica con `r round(mean(sen$X4)*100, 1)`%, mentre LDA e QDA mostrano valori più bassi, `r round(mean(sen$X2)*100, 1)`% e `r round(mean(sen$X3)*100, 1)`%. La differenza tra KNN e NN è inferiore ad un punto percentuale, mentre la NN mostra l'error rate più basso. Dati questi risultati e l'obiettivo di sviluppare un algoritmo capace di identificare i pazienti con maggiore bisogno di attenzioni e cure, il modello Neural Network viene scelto con lo scopo di sviluppare uno strumento utile a rispondere al nostro quesito in modo semplice e veloce; inoltre, a differenza del KNN, la NN può essere ottimizzata attraverso il tuning dei parametri.
+
+
+```{r, echo=FALSE, warning=FALSE}
+print(paste("Valori medi di specificity:"))
+print(paste("KNN CV:",round(mean(spe$X1),3)))
+print(paste("LDA:"   ,round(mean(spe$X2),3)))
+print(paste("QDA:"   ,round(mean(spe$X3),3)))
+print(paste("Log:"   ,round(mean(spe$X4),3)))
+print(paste("NN:"    ,round(mean(spe$X5),3)))
+spe2           <- do.call(cbind, spe)
+colnames(spe2) <- c("KNN CV", "LDA", "QDA", "Log", "NN")
+boxplot(spe2, names = colnames(spe2), main = "Specificity rates")
+```
+
+
+Valutando come metrica la specificity, la capacità del modello di discriminare correttamente i soggetti che non sviluppano una cardiopatia, il modello migliore risulta essere la NN, con un valore di `r round(mean(spe$X5)*100, 1)`%, seguita dalla LDA con `r round(mean(spe$X2)*100, 1)`%. Questa metrica sarebbe stata quella di riferimento se il passo successivo alla classificazione fosse stato un trattamento invasivo o costoso, per limitare il numero di soggetti sani indirizzati verso questo trattamento.
+
+
+## Best tuning Neural Network  
+
+```{r, echo=FALSE, warning=FALSE}
+data_model2 <- data_model
+
+# twoClassSummary considera positivo il primo livello: X1 (malato) viene messo per primo,
+# così la metrica "Sens" misura la sensitivity sui pazienti malati
+recode     <- c('X1' = 1, 'X0' = 0)
+data_model2$target <- factor(data_model2$target, levels = recode, labels = names(recode))
+
+   
+ctrl <- trainControl(method = "cv", number = 10,  search = "grid", classProbs = TRUE,
+                  summaryFunction = twoClassSummary)
+
+# modello di rete neurale ottimale
+set.seed(478)
+rete2 <- train(target ~ ., data = data_model2, method = "nnet", metric = "Sens",
+              trControl = ctrl, trace = FALSE, maxit = 300)
+rete2
+
+
+library(caret)
+confusionMatrix(rete2)
+```
+
+
+Nel tentativo di migliorare l'adattamento ai dati si è svolto un processo di tuning dei parametri, si è quindi utilizzato una funzione capace di determinare i migliori valori di size e decay per la NN, rispettivamente numero di neuroni nel livello nascosto della rete nurale utile a migliorare la capacità della rete di apprendere relazioni complesse nei dati e il coefficiente di penalizzazione utile a stabilizzare la rete rendendola meno sensibile a piccoli cambiamenti nei dati. 
+Come atteso, grazie a questo processo si è riusciti a migliorare la sensitivity del modello portandola da `r round(mean(sen$X5)*100, 1)`% a `r round(rete2$results[rownames(rete2$bestTune), "Sens"]*100, 1)`%, è migliorato anche il valore della specificity del modello passando da `r round(mean(spe$X5)*100, 1)`% a `r round(rete2$results[rownames(rete2$bestTune), "Spec"]*100, 1)`%; inoltre, possiamo ricavare il valore dell'error rate, medio, come 1-Accuracy a conferma del miglioramento delle capacità del modello nel discriminare i soggetti con e senza cardiopatie, infatti risulta un valore di error rate pari a `r round((1 - sum(diag(confusionMatrix(rete2)$table))/100)*100, 1)`% rispetto a quanto visto in precedenza `r round(mean(err$X5)*100, 1)`%.
+
+
+```{r, echo=FALSE, warning=FALSE}
+library(caret)
+importanza_variabili <- varImp(rete2)
+plot(importanza_variabili)
+```
+
+
+Il processo di addestramento di una rete neurale consite anche nell'ottimizzazione dei pesi dei parametri, la funzione VarImp utilizza quanto appreso dal modello sui pesi per determinare l'importanza delle variabili, risulta quindi che un impatto maggiore sulla capacità del modello di fare previsioni accurate è attribuito a pesi più elevati.
+E' possibile evidenziare che tra le classi più importanti si trovano la fascia di età 55-64 anni e i livelli "Due" ed "Uno" dell'indicatore del numero di arterie coronarie ostruite, seguiti dal dolore toracico non anginoso e dal sesso femminile. Risulta però, che il livello "Tre" del numero di vasi ostruiti occupa una posizione intermedia nella discriminazione dei pazienti. Di basso rilievo sembra essere il livello di colesterolo totale nel sangue, infatti le sue classi occupano le ultime posizioni di questa classifica. Questi valori vanno letti con cautela: varImp valuta i pesi della rete classe per classe, e il risultato può cambiare sensibilmente tra addestramenti diversi della stessa rete.
+
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE }
+#install.packages("DALEX")
+library(DALEX)
+set.seed(654)
+
+# Creazione di un oggetto explainer per il modello di rete neurale
+# y: 1 = malato; la funzione di previsione restituisce la probabilità di essere malato (X1)
+explainer <- explain(rete2, data = data_model[, names(data_model) != "target"], y = as.numeric(as.character(data_model$target)),
+                     predict_function = function(m, d) predict(m, d, type = "prob")[, "X1"],
+                     label = "Neural Network", verbose = FALSE)
+
+# Calcolo dell'importanza delle caratteristiche
+fi <- model_parts(explainer, loss_function = loss_root_mean_square)
+plot(fi)
+```
+
+
+Utilizzando il pacchetto DALEX è invece possibile ottenere una valutazione dell'importanza delle variabili, e non delle classi di ognuna di queste, data dal aumento della differenza tra i valori predetti da un modello e i valori osservati nei dati quando una determinata variabile viene eliminata dalle analisi. Osserviamo che, come definito in precedenza, se eliminassimo la variabile "vasi_ostruiti" (numero di arterie coronarie ostruite) la capacità di discriminare i pazienti del modello diminuirebbe maggiormente rispetto a quanto accadrebbe con ogni altra variabile; seguono la variabile "cp" (dolore toracico) e la variabile "age_c" (fascia di età), in accordo con l'approfondimento precedente. Risulta essere la meno importante la variabile "oldpeak_c" (variazione del segmento ST durante l'esercizio fisico).
+
+
+--------------------------------------------------------------------------------
+
+
+# Implementazione App
+
+
+Per rispondere all'obiettivo secondario il modello di rete neurale ottimizzato viene salvato e utilizzato da un'applicazione Shiny, che classifica un nuovo paziente in "Non a rischio" e "A rischio" a partire dalle variabili selezionate. Il codice dell'applicazione si trova nel file `app/app.R`.
+
+
+```{r, echo=FALSE}
+# salvataggio del modello, letto dall'applicazione
+saveRDS(rete2, "app/model_nn.rds")
+```
+
+
+Di seguito il risultato dell'applicazione per una paziente di sesso femminile, con i valori predefiniti per tutte le altre variabili.
+
+
+```{r, echo=FALSE, out.width="80%"}
+knitr::include_graphics("app/screenshot.png")
+```

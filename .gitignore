@@ -1,0 +1,16 @@
+# Data are not published
+data/
+
+# R session and project files
+.Rhistory
+.RData
+.Rproj.user/
+.Ruserdata
+
+# R data files and the saved model, created when the analysis is run
+*.rds
+*.rda
+
+# Files created while knitting
+*_files/
+*_cache/
