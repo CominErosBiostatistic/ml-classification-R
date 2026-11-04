@@ -3,6 +3,7 @@ title: "Elaborato Machine Learning"
 author: "Comin Eros"
 date: "2024-07-16"
 output: html_document
+knit: (function(input, ...) rmarkdown::render(input, output_dir = "docs", output_file = "index.html"))
 ---
 
 
@@ -798,8 +799,20 @@ Per rispondere all'obiettivo secondario il modello di rete neurale ottimizzato v
 
 
 ```{r, echo=FALSE}
-# salvataggio del modello, letto dall'applicazione
-saveRDS(rete2, "app/model_nn.rds")
+# salvataggio del modello, letto dall'applicazione: si tolgono i dati di addestramento
+# e i valori stimati per ogni paziente, che non servono per fare previsioni
+rete_app <- rete2
+rete_app$trainingData            <- NULL
+rete_app$finalModel$fitted.values <- NULL
+rete_app$finalModel$residuals     <- NULL
+saveRDS(rete_app, "app/model_nn.rds")
+```
+
+
+```{r, include=FALSE}
+# esportazione dell'applicazione con Shinylive: R e Shiny girano direttamente nel browser,
+# senza server, e la cartella docs viene pubblicata con GitHub Pages
+shinylive::export("app", "docs", subdir = "app", wasm_packages = FALSE, quiet = TRUE)
 ```
 
 
@@ -807,5 +820,24 @@ Di seguito il risultato dell'applicazione per una paziente di sesso femminile, c
 
 
 ```{r, echo=FALSE, out.width="80%"}
-knitr::include_graphics("app/screenshot.png")
+knitr::include_graphics("images/screenshot.png")
 ```
+
+
+L'applicazione può essere provata direttamente qui sotto, modificando le variabili e premendo "Predici". Al primo caricamento il browser scarica R e i pacchetti necessari, operazione che può richiedere fino ad un minuto; l'applicazione funziona solo quando la pagina è pubblicata online, non aprendo il file dal computer.
+
+
+```{r, echo=FALSE}
+knitr::include_app("app/", height = "950px")
+```
+
+
+```{r, include=FALSE}
+# previsione del modello per tutte le combinazioni possibili delle variabili dell'applicazione
+griglia <- expand.grid(lapply(data_model[, names(data_model) != "target"], levels), stringsAsFactors = FALSE)
+griglia$rischio <- predict(rete_app, newdata = griglia, type = "raw") == "X1"
+perc_rischio    <- round(tapply(griglia$rischio, griglia$vasi_ostruiti, mean) * 100)
+```
+
+
+Provando l'applicazione si nota che il modello dà molto peso al numero di vasi ostruiti: calcolando la previsione per tutte le `r nrow(griglia)` combinazioni possibili delle variabili, i pazienti classificati "A rischio" sono il `r perc_rischio["Nessuno"]`% senza vasi ostruiti, mentre salgono al `r perc_rischio["Uno"]`%, `r perc_rischio["Due"]`% e `r perc_rischio["Tre"]`% con uno, due o tre vasi ostruiti. Questo comportamento è coerente con l'importanza delle variabili vista in precedenza e non è stato corretto, dato lo scopo dimostrativo dell'applicazione.
